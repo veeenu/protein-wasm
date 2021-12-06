@@ -1,9 +1,11 @@
 #![feature(array_chunks)]
 #![feature(array_zip)]
 
+mod conversions;
 mod processing;
 mod utils;
 
+use conversions::*;
 use processing::*;
 
 use wasm_bindgen::prelude::*;
@@ -58,9 +60,10 @@ pub fn process(src: HtmlImageElement, dst: HtmlImageElement, canvas: HtmlCanvasE
         .as_slice()
         .array_chunks::<4>()
         .copied()
-        .map(threshold_alpha::<127>)
+        .map(threshold_alpha::<200>)
         .map(bytes2floats)
-        .map(rgba2hsva)
+        .map(rgba2xyza)
+        .map(xyza2laba)
         .collect();
 
     log("dst_data");
@@ -69,9 +72,10 @@ pub fn process(src: HtmlImageElement, dst: HtmlImageElement, canvas: HtmlCanvasE
         .as_slice()
         .array_chunks::<4>()
         .copied()
-        .map(threshold_alpha::<127>)
+        .map(threshold_alpha::<200>)
         .map(bytes2floats)
-        .map(rgba2hsva)
+        .map(rgba2xyza)
+        .map(xyza2laba)
         .collect();
 
     log("kmeans1");
@@ -81,22 +85,51 @@ pub fn process(src: HtmlImageElement, dst: HtmlImageElement, canvas: HtmlCanvasE
     let (dst_means, dst_stds) = k_means_std::<1, 4>(&dst_data_hsva);
     log(&format!("means={:?} stds={:?}", dst_means, dst_stds));
 
-    for (_, &(mean, std)) in src_means.zip(src_stds).iter().enumerate().take(1) {
+    let document_body = window().unwrap().document().unwrap().body().unwrap();
+
+    for (_, &(mean, std)) in src_means.zip(src_stds).iter().enumerate() {
+        {
+            let [r, g, b, a] = xyza2rgba(laba2xyza(mean));
+            let [sr, sg, sb, sa] = xyza2rgba(laba2xyza(std));
+            web_sys::console::log_2(
+                &format!("mean %c {} {} {} {}", r, g, b, a).into(),
+                &format!("background: rgba({}, {}, {}, {})", r*255., g*255., b*255., a*255.).into(),
+            );
+
+            web_sys::console::log_2(
+                &format!("std  %c {} {} {} {}", sr, sg, sb, sa).into(),
+                &format!("background: rgba({}, {}, {}, {})", r*255., g*255., b*255., a*255.).into(),
+            );
+        }
         let output = dst_data_hsva
             .iter()
-            .map(|hsva| {
-                hsva.zip(mean)
-                    .zip(std)
-                    .zip(dst_means[0])
-                    .zip(dst_stds[0])
-                    .map(|((((i, sm), ss), tm), ts)| (i - tm) * ss / ts + sm)
+            .map(|laba| {
+                let apply = |i, sm, ss, tm, ts| -> f32 { (i - tm) * ts / ss + sm };
+
+                let mut r = *laba;
+                for i in 0..=2 {
+                    r[i] = apply(laba[i], mean[i], std[i].sqrt(), dst_means[0][i], dst_stds[0][i].sqrt());
+                }
+
+                r
             })
-            .map(hsva2rgba)
+            .map(laba2xyza)
+            .map(xyza2rgba)
             .map(floats2bytes)
             .flatten()
             .collect::<Vec<_>>();
 
         let img_data = ImageData::new_with_u8_clamped_array(Clamped(&output), 256).unwrap();
+        let canvas = window()
+            .unwrap()
+            .document()
+            .unwrap()
+            .create_element("canvas")
+            .unwrap()
+            .dyn_into::<HtmlCanvasElement>()
+            .unwrap();
+        canvas.set_width(256);
+        canvas.set_height(256);
         canvas
             .get_context("2d")
             .unwrap()
@@ -105,6 +138,7 @@ pub fn process(src: HtmlImageElement, dst: HtmlImageElement, canvas: HtmlCanvasE
             .unwrap()
             .put_image_data(&img_data, 0.0, 0.0)
             .unwrap();
+        document_body.append_child(&canvas).unwrap();
         web_sys::console::log_1(&img_data.into());
     }
 }
