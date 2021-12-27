@@ -1,10 +1,8 @@
 #![feature(array_chunks)]
 #![feature(array_zip)]
-#![feature(const_fn_floating_point_arithmetic)]
 
 mod conversions;
 mod processing;
-mod utils;
 
 use conversions::*;
 use processing::*;
@@ -13,16 +11,6 @@ use wasm_bindgen::prelude::*;
 use wasm_bindgen::Clamped;
 use wasm_bindgen::JsCast;
 use web_sys::*;
-
-mod externs {
-    use wasm_bindgen::prelude::*;
-
-    #[wasm_bindgen]
-    extern "C" {
-        #[wasm_bindgen(js_namespace = console)]
-        pub(crate) fn log(s: &str);
-    }
-}
 
 #[cfg(feature = "wee_alloc")]
 #[global_allocator]
@@ -58,26 +46,12 @@ fn into_image_data(src: HtmlImageElement) -> ImageData {
     ctx.get_image_data(0., 0., w as f64, h as f64).unwrap()
 }
 
-fn log(s: &str) {
-    externs::log(s);
-}
-
-fn log_color(rgba: [f32; 3]) {
-    let [r, g, b] = rgba;
-    web_sys::console::log_2(
-        &format!("%c {} {} {}", r, g, b).into(),
-        &format!("background: rgba({}, {}, {})", r * 255., g * 255., b * 255.,).into(),
-    );
-}
-
 #[wasm_bindgen]
-pub fn process(
-    src: HtmlImageElement,
-    dst: HtmlImageElement,
-    output_container: HtmlElement,
-) {
+pub fn find_k_means(src: HtmlImageElement, output_container: HtmlElement) {
+    #[cfg(feature = "console_error_panic_hook")]
+    console_error_panic_hook::set_once();
+
     let src_data = into_image_data(src);
-    let dst_data = into_image_data(dst);
 
     let src_data_rgba: Vec<[f32; 4]> = src_data
         .data()
@@ -88,49 +62,94 @@ pub fn process(
         .map(bytes2floats)
         .collect();
 
-    let dst_data_rgba: Vec<[f32; 4]> = dst_data
+    let src_data_xyza: Vec<[f32; 4]> = src_data_rgba.iter().copied().map(rgba2xyza).collect();
+
+    let src_means = k_means::<3, 4, 10>(&src_data_xyza);
+
+    for &mean in src_means.means.iter() {
+        let [r, g, b, a] = xyza2rgba(mean);
+
+        let canvas = window()
+            .unwrap()
+            .document()
+            .unwrap()
+            .create_element("canvas")
+            .unwrap()
+            .dyn_into::<HtmlCanvasElement>()
+            .unwrap();
+        canvas.set_width(64);
+        canvas.set_height(64);
+        let ctx = canvas
+            .get_context("2d")
+            .unwrap()
+            .unwrap()
+            .dyn_into::<CanvasRenderingContext2d>()
+            .unwrap();
+        ctx.set_fill_style(&format!("rgba({}, {}, {}, {})", r * 255., g * 255., b * 255., a).into());
+        ctx.set_stroke_style(&"#ccc".into());
+        ctx.fill_rect(2., 2., 62., 62.);
+        ctx.stroke_rect(1., 1., 63., 63.);
+        output_container.append_child(&canvas).unwrap();
+    }
+}
+
+#[wasm_bindgen]
+pub fn transfer_colors(
+    src: HtmlImageElement,
+    dst: HtmlImageElement,
+    output_container: HtmlElement,
+) {
+    #[cfg(feature = "console_error_panic_hook")]
+    console_error_panic_hook::set_once();
+
+    let src_data = into_image_data(src);
+    let dst_data = into_image_data(dst);
+
+    let src_data_xyza: Vec<[f32; 4]> = src_data
         .data()
         .as_slice()
         .array_chunks::<4>()
         .copied()
         .map(threshold_alpha::<200>)
         .map(bytes2floats)
+        .map(rgba2xyza)
         .collect();
 
-    let src_data_xyza: Vec<[f32; 4]> = src_data_rgba.iter().copied().map(rgba2xyza).collect();
-    let dst_data_xyza: Vec<[f32; 4]> = dst_data_rgba.iter().copied().map(rgba2xyza).collect();
-
-    let src_data_xyz: Vec<[f32; 3]> = src_data_xyza
-        .iter()
+    let dst_data_xyza: Vec<[f32; 4]> = dst_data
+        .data()
+        .as_slice()
+        .array_chunks::<4>()
         .copied()
-        .filter_map(|[h, s, v, a]| if a > 0.9 { Some([h, s, v]) } else { None })
+        .map(threshold_alpha::<200>)
+        .map(bytes2floats)
+        .map(rgba2xyza)
         .collect();
 
-    let src_means = k_means_std::<3, 3, 10>(&src_data_xyz);
-    let dst_means = k_means_std::<2, 4, 10>(&dst_data_xyza);
+    //let src_data_xyza: Vec<[f32; 4]> = src_data_rgba.iter().copied().map(rgba2xyza).collect();
+    //let dst_data_xyza: Vec<[f32; 4]> = dst_data_rgba.iter().copied().map(rgba2xyza).collect();
 
-    for i in src_means.means {
-        log_color(xyz2rgb(i));
-    }
+    let src_means = k_means::<3, 4, 10>(&src_data_xyza);
+    let dst_means = k_means::<2, 4, 10>(&dst_data_xyza);
 
-    for (_, &mean) in src_means.means.iter().enumerate() {
+    for src_mean in src_means.means {
         let output = dst_data_xyza
             .iter()
             .copied()
             .enumerate()
-            .map(|(idx, mut xyza)| {
+            .map(|(idx, mut dst_color)| {
                 let label = dst_means.labels[idx];
+                let dst_mean = dst_means.means[label];
                 for i in 0..=2 {
-                    xyza[i] = xyza[i] - dst_means.means[label][i] + mean[i];
+                    dst_color[i] = dst_color[i] - dst_mean[i] + src_mean[i];
                 }
-                xyza
+                dst_color
             })
             .map(xyza2rgba)
-            .map(floats2bytes)
-            .flatten()
+            .flat_map(floats2bytes)
             .collect::<Vec<_>>();
 
-        let img_data = ImageData::new_with_u8_clamped_array(Clamped(&output), dst_data.width()).unwrap();
+        let img_data =
+            ImageData::new_with_u8_clamped_array(Clamped(&output), dst_data.width()).unwrap();
         let canvas = window()
             .unwrap()
             .document()

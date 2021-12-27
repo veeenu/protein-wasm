@@ -13,7 +13,7 @@ fn k_means_init<const K: usize, const D: usize>(points: &[[f32; D]]) -> [[f32; D
                 let closest_centroid = centroids[0..i]
                     .iter()
                     .fold(([0f32; D], f32::MAX), |closest, centroid| {
-                        let dist = distance(&cur, &centroid);
+                        let dist = distance(cur, centroid);
 
                         if closest.1 < dist {
                             closest
