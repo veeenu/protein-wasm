@@ -8,36 +8,57 @@ pub(crate) fn length<const D: usize>(a: &[f32; D]) -> f32 {
     a.map(|a| a.powf(2.)).iter().sum::<f32>()
 }
 
-pub(crate) fn k_means_std<const K: usize, const D: usize>(
-    points: &[[f32; D]],
-) -> ([[f32; D]; K], [[f32; D]; K]) {
+pub(crate) struct KMeansStd<const K: usize, const D: usize> {
+    pub(crate) means: [[f32; D]; K],
+    pub(crate) stds: [[f32; D]; K],
+    pub(crate) labels: Vec<usize>,
+}
+
+fn k_means_init<const K: usize, const D: usize>(points: &[[f32; D]]) -> [[f32; D]; K] {
     let mut centroids = [[0f32; D]; K];
-    let mut centroids_std = [[0f32; D]; K];
 
-    let ranges = points
-        .iter()
-        .fold(([f32::MAX; D], [f32::MIN; D]), |(mins, maxs), &p| {
-            (
-                mins.zip(p).map(|(m, pv)| m.min(pv)),
-                maxs.zip(p).map(|(m, pv)| m.max(pv)),
-            )
-        });
+    centroids[0] = points[points.len() / 2];
+    for i in 1..K {
+        centroids[i] = points
+            .iter()
+            .fold(([0f32; D], 0f32), |farthest, cur| {
+                let closest_centroid = centroids[0..i]
+                    .iter()
+                    .fold(([0f32; D], f32::MAX), |closest, centroid| {
+                        let dist = distance(&cur, &centroid);
 
-    super::log(&format!("mins={:?} maxs={:?}", ranges.0, ranges.1));
+                        if closest.1 < dist {
+                            closest
+                        } else {
+                            (*centroid, dist)
+                        }
+                    })
+                    .0;
 
-    for k in 0..K {
-        for d in 0..D {
-            let (a, b) = (ranges.0[d], ranges.1[d]);
-            fn random() -> f32 {
-                Math::random() as f32
-            }
-            centroids[k][d] = random() * (b - a) + a;
-        }
+                let dist = distance(&closest_centroid, cur);
+
+                if farthest.1 > dist {
+                    farthest
+                } else {
+                    (*cur, dist)
+                }
+            })
+            .0;
     }
+
+    centroids.reverse();
+    centroids
+}
+
+pub(crate) fn k_means_std<const K: usize, const D: usize, const ITERS: usize>(
+    points: &[[f32; D]],
+) -> KMeansStd<K, D> {
+    let mut centroids = k_means_init(points);
+    let mut centroids_std = [[0f32; D]; K];
 
     let mut labels = Vec::with_capacity(points.len());
 
-    for _ in 0..10 {
+    for _ in 0..ITERS {
         let mut labels_hist = [0usize; K];
         labels.clear();
         labels.extend(points.iter().map(|p| {
@@ -56,8 +77,6 @@ pub(crate) fn k_means_std<const K: usize, const D: usize>(
             labels_hist[label] += 1;
             label
         }));
-
-        super::log(&format!("{:?}", labels_hist));
 
         let labels_weights: [f32; K] =
             labels_hist.map(|h| if h == 0 { 0. } else { 1. / (h as f32) });
@@ -80,5 +99,9 @@ pub(crate) fn k_means_std<const K: usize, const D: usize>(
         centroids_std = centroids_std.map(|c| c.map(|c| c / (labels.len() as f32)).map(f32::sqrt));
     }
 
-    (centroids, centroids_std)
+    KMeansStd {
+        means: centroids,
+        stds: centroids_std,
+        labels,
+    }
 }

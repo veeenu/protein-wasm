@@ -27,8 +27,8 @@ pub(crate) fn floats2bytes(rgba: [f32; 4]) -> [u8; 4] {
 }
 
 // https://en.wikipedia.org/wiki/HSL_and_HSV#From_RGB
-pub(crate) fn rgba2hsva(rgba: [f32; 4]) -> [f32; 4] {
-    let [r, g, b, a] = rgba;
+pub(crate) fn rgb2hsv(rgb: [f32; 3]) -> [f32; 3] {
+    let [r, g, b] = rgb;
 
     let value = r.max(g).max(b);
     let min = r.min(g).min(b);
@@ -49,15 +49,15 @@ pub(crate) fn rgba2hsva(rgba: [f32; 4]) -> [f32; 4] {
 
     let saturation = if value == 0. { 0. } else { chroma / value };
 
-    [hue, saturation, value, a]
+    [hue, saturation, value]
 }
 
 // https://en.wikipedia.org/wiki/HSL_and_HSV#To_RGB
-pub(crate) fn hsva2rgba(hsva: [f32; 4]) -> [f32; 4] {
-    let [h, s, v, a] = hsva;
+pub(crate) fn hsv2rgb(hsv: [f32; 3]) -> [f32; 3] {
+    let [h, s, v] = hsv;
 
     if h.is_nan() {
-        return [0., 0., 0., a];
+        return [0., 0., 0.];
     }
 
     let c = v * s;
@@ -74,11 +74,35 @@ pub(crate) fn hsva2rgba(hsva: [f32; 4]) -> [f32; 4] {
         _ => (0., 0., 0.),
     };
 
-    [r1 + m, g1 + m, b1 + m, a]
+    [r1 + m, g1 + m, b1 + m]
+}
+
+pub(crate) fn rgba2hsva(rgba: [f32; 4]) -> [f32; 4] {
+    let [r, g, b, a] = rgba;
+    let [h, s, v] = rgb2hsv([r, g, b]);
+    [h, s, v, a]
+}
+
+pub(crate) fn hsva2rgba(hsva: [f32; 4]) -> [f32; 4] {
+    let [h, s, v, a] = hsva;
+    let [r, g, b] = hsv2rgb([h, s, v]);
+    [r, g, b, a]
+}
+
+pub(crate) fn rgba2xyza(rgba: [f32; 4]) -> [f32; 4] {
+    let [r, g, b, a] = rgba;
+    let [x, y, z] = rgb2xyz([r, g, b]);
+    [x, y, z, a]
+}
+
+pub(crate) fn xyza2rgba(xyza: [f32; 4]) -> [f32; 4] {
+    let [x, y, z, a] = xyza;
+    let [r, g, b] = xyz2rgb([x, y, z]);
+    [r, g, b, a]
 }
 
 // http://www.brucelindbloom.com/index.html?Eqn_RGB_XYZ_Matrix.html
-pub(crate) fn rgba2xyza(rgba: [f32; 4]) -> [f32; 4] {
+pub(crate) fn rgb2xyz(rgb: [f32; 3]) -> [f32; 3] {
     #[rustfmt::skip]
     const M: [f32; 9] = [
         0.4124564, 0.3575761, 0.1804375,
@@ -87,17 +111,16 @@ pub(crate) fn rgba2xyza(rgba: [f32; 4]) -> [f32; 4] {
     ];
 
     let [m11, m12, m13, m21, m22, m23, m31, m32, m33] = M;
-    let [r, g, b, a] = rgba;
+    let [r, g, b] = rgb;
 
     [
         m11 * r + m12 * g + m13 * b,
         m21 * r + m22 * g + m23 * b,
         m31 * r + m32 * g + m33 * b,
-        a,
     ]
 }
 
-pub(crate) fn xyza2rgba(xyza: [f32; 4]) -> [f32; 4] {
+pub(crate) fn xyz2rgb(xyz: [f32; 3]) -> [f32; 3] {
     #[rustfmt::skip]
     const MINV: [f32; 9] = [
         3.2404542, -1.5371385, -0.4985314,
@@ -106,18 +129,17 @@ pub(crate) fn xyza2rgba(xyza: [f32; 4]) -> [f32; 4] {
     ];
 
     let [m11, m12, m13, m21, m22, m23, m31, m32, m33] = MINV;
-    let [x, y, z, a] = xyza;
+    let [x, y, z] = xyz;
 
     [
         m11 * x + m12 * y + m13 * z,
         m21 * x + m22 * y + m23 * z,
         m31 * x + m32 * y + m33 * z,
-        a,
     ]
 }
 
 // https://en.wikipedia.org/wiki/CIELAB_color_space#From_CIEXYZ_to_CIELAB
-pub(crate) fn xyza2laba(xyza: [f32; 4]) -> [f32; 4] {
+pub(crate) fn xyz2lab(xyz: [f32; 3]) -> [f32; 3] {
     fn f(t: f32) -> f32 {
         const DELTA: f32 = 6. / 29.;
         const DELTA2: f32 = DELTA * DELTA;
@@ -128,12 +150,12 @@ pub(crate) fn xyza2laba(xyza: [f32; 4]) -> [f32; 4] {
             t / (3. * DELTA2) + 4. / 29.
         }
     }
-    
+
     const XN: f32 = 95.0489;
     const YN: f32 = 100.;
     const ZN: f32 = 108.8840;
 
-    let [x, y, z, alpha] = xyza;
+    let [x, y, z] = xyz;
     let f_x = f(x / XN);
     let f_y = f(y / YN);
     let f_z = f(z / ZN);
@@ -141,10 +163,10 @@ pub(crate) fn xyza2laba(xyza: [f32; 4]) -> [f32; 4] {
     let a = 500. * (f_x - f_y);
     let b = 200. * (f_y - f_z);
 
-    [l, a, b, alpha]
+    [l, a, b]
 }
 
-pub(crate) fn laba2xyza(laba: [f32; 4]) -> [f32; 4] {
+pub(crate) fn lab2xyz(lab: [f32; 3]) -> [f32; 3] {
     fn f_inv(t: f32) -> f32 {
         const DELTA: f32 = 6. / 29.;
         const DELTA2: f32 = DELTA * DELTA;
@@ -155,16 +177,76 @@ pub(crate) fn laba2xyza(laba: [f32; 4]) -> [f32; 4] {
             3. * DELTA2 * (t - 4. / 29.)
         }
     }
-    
+
     const XN: f32 = 95.0489;
     const YN: f32 = 100.;
     const ZN: f32 = 108.8840;
 
-    let [l, a, b, alpha] = laba;
-    let lstar = (l + 16.)/116.;
+    let [l, a, b] = lab;
+    let lstar = (l + 16.) / 116.;
     let x = XN * f_inv(lstar + a / 500.);
     let y = YN * f_inv(lstar);
     let z = ZN * f_inv(lstar - b / 200.);
 
-    [x, y, z, alpha]
+    [x, y, z]
 }
+
+const fn matmul(a: [f32; 9], b: [f32; 9]) -> [f32; 9] {
+    let [a00, a01, a02, a10, a11, a12, a20, a21, a22] = a;
+    let [b00, b01, b02, b10, b11, b12, b20, b21, b22] = b;
+
+    [
+        a00 * b00 + a01 * b10 + a02 * b20,
+        a00 * b01 + a01 * b11 + a02 * b21,
+        a00 * b02 + a01 * b12 + a02 * b22,
+        a10 * b00 + a11 * b10 + a12 * b20,
+        a10 * b01 + a11 * b11 + a12 * b21,
+        a10 * b02 + a11 * b12 + a12 * b22,
+        a20 * b00 + a21 * b10 + a22 * b20,
+        a20 * b01 + a21 * b11 + a22 * b21,
+        a20 * b02 + a21 * b12 + a22 * b22,
+    ]
+}
+
+fn matmulvec(m: [f32; 9], v: [f32; 3]) -> [f32; 3] {
+    let [m00, m01, m02, m10, m11, m12, m20, m21, m22] = m;
+    let [x, y, z] = v;
+
+    [
+        x * m00 + y * m01 + z * m02,
+        x * m10 + y * m11 + z * m12,
+        x * m20 + y * m21 + z * m22,
+    ]
+}
+
+pub(crate) fn rgba2laba(rgb: [f32; 3]) -> [f32; 3] {
+    xyz2lab(rgb2xyz(rgb))
+}
+
+pub(crate) fn laba2rgba(lab: [f32; 3]) -> [f32; 3] {
+    xyz2rgb(lab2xyz(lab))
+}
+
+// #[test]
+// fn test_invertibility() {
+//     let rgbas = (0..32)
+//         .map(|i| (i as f32) / 32.)
+//         .map(|i| [i * 360., i, i, 1.])
+//         .map(hsva2rgba)
+//         .collect::<Vec<_>>();
+// 
+//     for color in rgbas {
+//         let intermediate = rgba2laba(color);
+//         let inverted = laba2rgba(intermediate);
+//         println!("[{:.2}, {:.2}, {:.2}]", color[0], color[1], color[2],);
+//         println!(
+//             "[{:.2}, {:.2}, {:.2}]",
+//             intermediate[0], intermediate[1], intermediate[2],
+//         );
+//         println!(
+//             "[{:.2}, {:.2}, {:.2}]",
+//             inverted[0], inverted[1], inverted[2],
+//         );
+//         println!("");
+//     }
+// }
