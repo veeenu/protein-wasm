@@ -1,5 +1,3 @@
-use js_sys::Math;
-
 pub(crate) fn distance<const D: usize>(a: &[f32; D], b: &[f32; D]) -> f32 {
     a.zip(*b).map(|(a, b)| (a - b).powf(2.)).iter().sum::<f32>()
 }
@@ -10,7 +8,6 @@ pub(crate) fn length<const D: usize>(a: &[f32; D]) -> f32 {
 
 pub(crate) struct KMeansStd<const K: usize, const D: usize> {
     pub(crate) means: [[f32; D]; K],
-    pub(crate) stds: [[f32; D]; K],
     pub(crate) labels: Vec<usize>,
 }
 
@@ -54,7 +51,6 @@ pub(crate) fn k_means_std<const K: usize, const D: usize, const ITERS: usize>(
     points: &[[f32; D]],
 ) -> KMeansStd<K, D> {
     let mut centroids = k_means_init(points);
-    let mut centroids_std = [[0f32; D]; K];
 
     let mut labels = Vec::with_capacity(points.len());
 
@@ -82,26 +78,16 @@ pub(crate) fn k_means_std<const K: usize, const D: usize, const ITERS: usize>(
             labels_hist.map(|h| if h == 0 { 0. } else { 1. / (h as f32) });
 
         centroids = [[0f32; D]; K];
-        centroids_std = [[0f32; D]; K];
 
         labels.iter().enumerate().for_each(|(i, &l)| {
             for d in 0..D {
                 centroids[l][d] += points[i][d] * labels_weights[l];
             }
         });
-
-        labels.iter().enumerate().for_each(|(i, &l)| {
-            for d in 0..D {
-                centroids_std[l][d] += (points[i][d] - centroids[l][d]).powf(2.);
-            }
-        });
-
-        centroids_std = centroids_std.map(|c| c.map(|c| c / (labels.len() as f32)).map(f32::sqrt));
     }
 
     KMeansStd {
         means: centroids,
-        stds: centroids_std,
         labels,
     }
 }

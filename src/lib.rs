@@ -55,17 +55,15 @@ fn into_image_data(src: HtmlImageElement) -> ImageData {
 }
 
 fn log(s: &str) {
-    unsafe { externs::log(s) }
+    externs::log(s);
 }
 
 fn log_color(rgba: [f32; 3]) {
     let [r, g, b] = rgba;
-    unsafe {
-        web_sys::console::log_2(
-            &format!("%c {} {} {}", r, g, b).into(),
-            &format!("background: rgba({}, {}, {})", r * 255., g * 255., b * 255.,).into(),
-        );
-    }
+    web_sys::console::log_2(
+        &format!("%c {} {} {}", r, g, b).into(),
+        &format!("background: rgba({}, {}, {})", r * 255., g * 255., b * 255.,).into(),
+    );
 }
 
 #[wasm_bindgen]
@@ -91,17 +89,17 @@ pub fn process(src: HtmlImageElement, dst: HtmlImageElement) {
         .map(bytes2floats)
         .collect();
 
-    let src_data_hsva: Vec<[f32; 4]> = src_data_rgba.iter().copied().map(rgba2xyza).collect();
-    let dst_data_hsva: Vec<[f32; 4]> = dst_data_rgba.iter().copied().map(rgba2xyza).collect();
+    let src_data_xyza: Vec<[f32; 4]> = src_data_rgba.iter().copied().map(rgba2xyza).collect();
+    let dst_data_xyza: Vec<[f32; 4]> = dst_data_rgba.iter().copied().map(rgba2xyza).collect();
 
-    let src_data_hsv: Vec<[f32; 3]> = src_data_hsva
+    let src_data_xyz: Vec<[f32; 3]> = src_data_xyza
         .iter()
         .copied()
         .filter_map(|[h, s, v, a]| if a > 0.9 { Some([h, s, v]) } else { None })
         .collect();
 
-    let src = k_means_std::<3, 3, 10>(&src_data_hsv);
-    let dst = k_means_std::<2, 4, 10>(&dst_data_hsva);
+    let src = k_means_std::<3, 3, 10>(&src_data_xyz);
+    let dst = k_means_std::<2, 4, 10>(&dst_data_xyza);
 
     for i in src.means {
         log_color(xyz2rgb(i));
@@ -109,28 +107,17 @@ pub fn process(src: HtmlImageElement, dst: HtmlImageElement) {
 
     let document_body = window().unwrap().document().unwrap().body().unwrap();
 
-    for (_, &(mean, std)) in src.means.zip(src.stds).iter().enumerate() {
-        let output = dst_data_hsva
+    for (_, &mean) in src.means.iter().enumerate() {
+        let output = dst_data_xyza
             .iter()
             .copied()
             .enumerate()
-            .map(|(idx, hsva)| {
+            .map(|(idx, mut xyza)| {
                 let label = dst.labels[idx];
-                fn apply(i: f32, sm: f32, ss: f32, tm: f32, ts: f32) -> f32 {
-                    // (i - tm) * (ts / ss) + sm
-                    (i - tm) + sm
-                }
-                let mut r = hsva;
                 for i in 0..=2 {
-                    r[i] = apply(
-                        hsva[i],
-                        mean[i],
-                        std[i],
-                        dst.means[label][i],
-                        dst.stds[label][i],
-                    );
+                    xyza[i] = xyza[i] - dst.means[label][i] + mean[i];
                 }
-                r
+                xyza
             })
             .map(xyza2rgba)
             .map(floats2bytes)
