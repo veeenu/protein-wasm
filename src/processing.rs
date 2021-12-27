@@ -2,15 +2,6 @@ pub(crate) fn distance<const D: usize>(a: &[f32; D], b: &[f32; D]) -> f32 {
     a.zip(*b).map(|(a, b)| (a - b).powf(2.)).iter().sum::<f32>()
 }
 
-pub(crate) fn length<const D: usize>(a: &[f32; D]) -> f32 {
-    a.map(|a| a.powf(2.)).iter().sum::<f32>()
-}
-
-pub(crate) struct KMeansStd<const K: usize, const D: usize> {
-    pub(crate) means: [[f32; D]; K],
-    pub(crate) labels: Vec<usize>,
-}
-
 fn k_means_init<const K: usize, const D: usize>(points: &[[f32; D]]) -> [[f32; D]; K] {
     let mut centroids = [[0f32; D]; K];
 
@@ -47,9 +38,14 @@ fn k_means_init<const K: usize, const D: usize>(points: &[[f32; D]]) -> [[f32; D
     centroids
 }
 
-pub(crate) fn k_means_std<const K: usize, const D: usize, const ITERS: usize>(
+pub(crate) struct KMeans<const K: usize, const D: usize> {
+    pub(crate) means: [[f32; D]; K],
+    pub(crate) labels: Vec<usize>,
+}
+
+pub(crate) fn k_means<const K: usize, const D: usize, const ITERS: usize>(
     points: &[[f32; D]],
-) -> KMeansStd<K, D> {
+) -> KMeans<K, D> {
     let mut centroids = k_means_init(points);
 
     let mut labels = Vec::with_capacity(points.len());
@@ -86,7 +82,7 @@ pub(crate) fn k_means_std<const K: usize, const D: usize, const ITERS: usize>(
         });
     }
 
-    KMeansStd {
+    KMeans {
         means: centroids,
         labels,
     }

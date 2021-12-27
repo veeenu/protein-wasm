@@ -37,8 +37,12 @@ fn into_image_data(src: HtmlImageElement) -> ImageData {
         .unwrap()
         .dyn_into::<HtmlCanvasElement>()
         .unwrap();
-    canvas.set_width(256);
-    canvas.set_height(256);
+
+    let w = src.width();
+    let h = src.height();
+
+    canvas.set_width(w);
+    canvas.set_height(h);
 
     let ctx = canvas
         .get_context("2d")
@@ -47,11 +51,11 @@ fn into_image_data(src: HtmlImageElement) -> ImageData {
         .dyn_into::<CanvasRenderingContext2d>()
         .unwrap();
 
-    ctx.clear_rect(0., 0., 256., 256.);
+    ctx.clear_rect(0., 0., w as f64, h as f64);
     ctx.draw_image_with_html_image_element(&src, 0., 0.)
         .unwrap();
 
-    ctx.get_image_data(0., 0., 256., 256.).unwrap()
+    ctx.get_image_data(0., 0., w as f64, h as f64).unwrap()
 }
 
 fn log(s: &str) {
@@ -67,7 +71,11 @@ fn log_color(rgba: [f32; 3]) {
 }
 
 #[wasm_bindgen]
-pub fn process(src: HtmlImageElement, dst: HtmlImageElement) {
+pub fn process(
+    src: HtmlImageElement,
+    dst: HtmlImageElement,
+    output_container: HtmlElement,
+) {
     let src_data = into_image_data(src);
     let dst_data = into_image_data(dst);
 
@@ -98,24 +106,22 @@ pub fn process(src: HtmlImageElement, dst: HtmlImageElement) {
         .filter_map(|[h, s, v, a]| if a > 0.9 { Some([h, s, v]) } else { None })
         .collect();
 
-    let src = k_means_std::<3, 3, 10>(&src_data_xyz);
-    let dst = k_means_std::<2, 4, 10>(&dst_data_xyza);
+    let src_means = k_means_std::<3, 3, 10>(&src_data_xyz);
+    let dst_means = k_means_std::<2, 4, 10>(&dst_data_xyza);
 
-    for i in src.means {
+    for i in src_means.means {
         log_color(xyz2rgb(i));
     }
 
-    let document_body = window().unwrap().document().unwrap().body().unwrap();
-
-    for (_, &mean) in src.means.iter().enumerate() {
+    for (_, &mean) in src_means.means.iter().enumerate() {
         let output = dst_data_xyza
             .iter()
             .copied()
             .enumerate()
             .map(|(idx, mut xyza)| {
-                let label = dst.labels[idx];
+                let label = dst_means.labels[idx];
                 for i in 0..=2 {
-                    xyza[i] = xyza[i] - dst.means[label][i] + mean[i];
+                    xyza[i] = xyza[i] - dst_means.means[label][i] + mean[i];
                 }
                 xyza
             })
@@ -124,7 +130,7 @@ pub fn process(src: HtmlImageElement, dst: HtmlImageElement) {
             .flatten()
             .collect::<Vec<_>>();
 
-        let img_data = ImageData::new_with_u8_clamped_array(Clamped(&output), 256).unwrap();
+        let img_data = ImageData::new_with_u8_clamped_array(Clamped(&output), dst_data.width()).unwrap();
         let canvas = window()
             .unwrap()
             .document()
@@ -133,8 +139,8 @@ pub fn process(src: HtmlImageElement, dst: HtmlImageElement) {
             .unwrap()
             .dyn_into::<HtmlCanvasElement>()
             .unwrap();
-        canvas.set_width(256);
-        canvas.set_height(256);
+        canvas.set_width(dst_data.width());
+        canvas.set_height(dst_data.height());
         canvas
             .get_context("2d")
             .unwrap()
@@ -143,6 +149,6 @@ pub fn process(src: HtmlImageElement, dst: HtmlImageElement) {
             .unwrap()
             .put_image_data(&img_data, 0.0, 0.0)
             .unwrap();
-        document_body.append_child(&canvas).unwrap();
+        output_container.append_child(&canvas).unwrap();
     }
 }
