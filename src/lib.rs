@@ -26,8 +26,8 @@ fn into_image_data(src: HtmlImageElement) -> ImageData {
         .dyn_into::<HtmlCanvasElement>()
         .unwrap();
 
-    let w = src.width();
-    let h = src.height();
+    let w = src.natural_width();
+    let h = src.natural_width();
 
     canvas.set_width(w);
     canvas.set_height(h);
